@@ -18,14 +18,13 @@ from aiogram.types import (
 try:
     from cities import CITIES
 except ImportError:
-    # Если файл не найден, используем минимальный список
     CITIES = ["Москва", "Санкт-Петербург", "Казань", "Екатеринбург", "Новосибирск"]
 
 # === КОНФИГУРАЦИЯ ===
 BOT_TOKEN = "8104721228:AAHPnw-PHAMYMJARBvBULtm5_SeFcrhfm3g"
 ADMIN_IDS = [931410785]
-PLATFORM_FEE = 99  # Фиксированный сервисный сбор 99 ₽
-PAYMENT_LINK = "https://yoomoney.ru/pay/..."  # Захардкоженная ссылка на оплату
+PLATFORM_FEE = 99
+PAYMENT_LINK = "https://yoomoney.ru/pay/..."
 
 # === FSM СТРУКТУРА ===
 class MainStates(StatesGroup):
@@ -43,7 +42,7 @@ class CreateEventStates(StatesGroup):
     TIME = State()
     MAX_PARTICIPANTS = State()
     DESCRIPTION = State()
-    CONTACT = State()  # НОВОЕ: контакт инициатора
+    CONTACT = State()
     CONFIRMATION = State()
 
 class SearchEventsStates(StatesGroup):
@@ -65,7 +64,6 @@ class Database:
 
     async def init_db(self):
         async with aiosqlite.connect(self.db_path) as db:
-            # Пользователи с доп. полями
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,7 +77,6 @@ class Database:
                 )
             """)
             
-            # События с описанием И контактом
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,11 +85,9 @@ class Database:
                     city TEXT,
                     date TEXT,
                     time TEXT,
-                    price INTEGER,
-                    min_participants INTEGER DEFAULT 2,
                     max_participants INTEGER,
                     description TEXT,
-                    contact TEXT,  -- НОВОЕ: контакт инициатора
+                    contact TEXT,
                     status TEXT DEFAULT 'ACTIVE',
                     chat_id INTEGER,
                     creator_id INTEGER,
@@ -101,7 +96,6 @@ class Database:
                 )
             """)
             
-            # Участники событий
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS event_participants (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -115,7 +109,6 @@ class Database:
                 )
             """)
             
-            # Черный список
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS blacklist (
                     user_id INTEGER PRIMARY KEY,
@@ -231,7 +224,6 @@ class Database:
         async with aiosqlite.connect(self.db_path) as db:
             user_id = await self.get_user_id(user_telegram_id)
             
-            # Проверяем лимит участников
             cursor = await db.execute(
                 "SELECT max_participants FROM events WHERE id = ?",
                 (event_id,)
@@ -247,7 +239,6 @@ class Database:
             if confirmed_count >= max_participants:
                 return False, "Достигнут лимит участников"
             
-            # Проверяем, не записан ли уже
             cursor = await db.execute("""
                 SELECT id FROM event_participants 
                 WHERE event_id = ? AND user_id = ?
@@ -256,7 +247,6 @@ class Database:
             if await cursor.fetchone():
                 return False, "Вы уже записаны на это событие"
             
-            # Добавляем участника
             await db.execute("""
                 INSERT INTO event_participants (event_id, user_id, invited_by, status)
                 VALUES (?, ?, ?, 'PENDING')
@@ -328,7 +318,6 @@ def get_cities_keyboard(page=0, items_per_page=8):
     if row:
         buttons.append(row)
     
-    # Кнопки пагинации
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"city_page_{page-1}"))
@@ -425,18 +414,16 @@ def get_payment_kb(event_id):
         ]
     )
 
-# === ОБРАБОТЧИКИ ===
+# === ОБРАБОТЧИКИ КНОПОК ГЛАВНОГО МЕНЮ ===
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     """Старт бота с онбордингом"""
     await db.add_user(message.from_user.id, message.from_user.username)
     
-    # Проверяем, прошел ли пользователь онбординг
     name, city, onboarded = await db.get_user_profile(message.from_user.id)
     
     if not onboarded:
-        # Запускаем онбординг
         await state.set_state(OnboardingStates.NAME)
         await message.answer(
             "👋 Добро пожаловать в VIBEZ!\n\n"
@@ -445,20 +432,58 @@ async def cmd_start(message: Message, state: FSMContext):
             reply_markup=ReplyKeyboardRemove()
         )
     else:
-        # Пользователь уже онбордирован
         await state.set_state(MainStates.MAIN_MENU)
         await message.answer(
             f"👋 Привет, {name}!\n\n"
-            "VIBEZ — бот для создания и поиска реальных событий в твоём городе.\n\n"
-            "🔍 Найти событие\n"
-            "➕ Создать событие\n"
-            "💳 Забронировать участие",
+            "VIBEZ — бот для создания и поиска реальных событий в твоём городе.\n",
             reply_markup=get_main_menu_kb()
         )
+
+@router.message(F.text == "👤 Мой профиль", MainStates.MAIN_MENU)
+async def my_profile(message: Message, state: FSMContext):
+    """Мой профиль (заглушка)"""
+    name, city, onboarded = await db.get_user_profile(message.from_user.id)
+    
+    if name and city:
+        await message.answer(
+            f"👤 <b>Ваш профиль:</b>\n\n"
+            f"Имя: {name}\n"
+            f"Город: {city}\n\n"
+            f"<i>Раздел в разработке</i>",
+            parse_mode="HTML",
+            reply_markup=get_main_menu_kb()
+        )
+    else:
+        await message.answer(
+            "❌ Профиль не найден. Пройдите онбординг: /start",
+            reply_markup=get_main_menu_kb()
+        )
+
+@router.message(F.text == "ℹ️ Как пользоваться", MainStates.MAIN_MENU)
+async def how_to_use(message: Message, state: FSMContext):
+    """Как пользоваться (заглушка)"""
+    await message.answer(
+        "📖 <b>Как пользоваться VIBEZ:</b>\n\n"
+        "1. 🔍 <b>Найти событие</b> — ищешь активные события в твоём городе\n"
+        "2. ➕ <b>Создать событие</b> — организуешь свою встречу\n"
+        "3. 💳 <b>Забронировать</b> — оплачиваешь участие (99 ₽ сервисный сбор)\n"
+        "4. 📲 <b>Приглашать друзей</b> — делись ссылкой на событие\n\n"
+        "<i>Полная инструкция появится позже</i>",
+        parse_mode="HTML",
+        reply_markup=get_main_menu_kb()
+    )
+
+# === ОНБОРДИНГ ===
 
 @router.message(OnboardingStates.NAME)
 async def process_name(message: Message, state: FSMContext):
     """Обработка ввода имени при онбординге"""
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await state.set_state(MainStates.MAIN_MENU)
+        await message.answer("Онбординг отменен.", reply_markup=get_main_menu_kb())
+        return
+    
     name = message.text.strip()
     if len(name) < 2:
         await message.answer("Имя должно содержать минимум 2 символа. Попробуйте еще раз:")
@@ -480,16 +505,13 @@ async def process_city_selection(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     name = data['name']
     
-    # Сохраняем профиль пользователя
     await db.update_user_profile(callback.from_user.id, name, city)
     
     await state.set_state(MainStates.MAIN_MENU)
     await callback.message.edit_text(
         f"👋 Привет, {name}!\n\n"
-        f"VIBEZ — бот для создания и поиска реальных событий в твоём городе ({city}).\n\n"
-        "🔍 Найти событие\n"
-        "➕ Создать событие\n"
-        "💳 Забронировать участие"
+        f"Город: {city}\n\n"
+        "VIBEZ — бот для создания и поиска реальных событий в твоём городе."
     )
     await callback.message.answer(
         "Выберите действие:",
@@ -499,21 +521,116 @@ async def process_city_selection(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("city_page_"))
 async def process_city_pagination(callback: CallbackQuery, state: FSMContext):
-    """Обработка пагинации городов - НЕ меняет состояние FSM"""
+    """Обработка пагинации городов"""
     page = int(callback.data.split("city_page_")[1])
     await callback.message.edit_reply_markup(reply_markup=get_cities_keyboard(page))
     await callback.answer()
+
+@router.callback_query(F.data == "cancel_onboarding")
+async def cancel_onboarding(callback: CallbackQuery, state: FSMContext):
+    """Отмена онбординга"""
+    await state.clear()
+    await state.set_state(MainStates.MAIN_MENU)
+    await callback.message.edit_text("Онбординг отменен.")
+    await callback.message.answer(
+        "Выберите действие:",
+        reply_markup=get_main_menu_kb()
+    )
+    await callback.answer()
+
+# === КНОПКИ НАЗАД/ОТМЕНА ===
+
+@router.message(F.text == "❌ Отмена", StateFilter(None, default_state))
+@router.message(F.text == "❌ Отмена")
+async def cancel_anywhere(message: Message, state: FSMContext):
+    """Отмена в любом состоянии"""
+    await state.clear()
+    await state.set_state(MainStates.MAIN_MENU)
+    await message.answer(
+        "Действие отменено.",
+        reply_markup=get_main_menu_kb()
+    )
+
+@router.message(F.text == "⬅️ Назад")
+async def go_back(message: Message, state: FSMContext):
+    """Назад в любом состоянии"""
+    current_state = await state.get_state()
+    
+    if current_state == CreateEventStates.TYPE:
+        await state.set_state(MainStates.MAIN_MENU)
+        await message.answer("Возврат в главное меню:", reply_markup=get_main_menu_kb())
+    
+    elif current_state == CreateEventStates.TYPE_OTHER:
+        await state.set_state(CreateEventStates.TYPE)
+        await message.answer(
+            "[Создание события 1/7]\n\n"
+            "🎯 Выберите тип события:",
+            reply_markup=get_event_types_kb()
+        )
+    
+    elif current_state == CreateEventStates.DATE:
+        await state.set_state(CreateEventStates.TYPE)
+        await message.answer(
+            "[Создание события 1/7]\n\n"
+            "🎯 Выберите тип события:",
+            reply_markup=get_event_types_kb()
+        )
+    
+    elif current_state == CreateEventStates.TIME:
+        await state.set_state(CreateEventStates.DATE)
+        await message.answer(
+            "[Создание события 2/7]\n\n"
+            "Введите дату в формате ДД.ММ.ГГГГ\n"
+            "Например: 25.12.2024",
+            reply_markup=get_back_cancel_kb()
+        )
+    
+    elif current_state == CreateEventStates.MAX_PARTICIPANTS:
+        await state.set_state(CreateEventStates.TIME)
+        await message.answer(
+            "[Создание события 3/7]\n\n"
+            "Введите время в формате ЧЧ:ММ\n"
+            "Например: 19:00",
+            reply_markup=get_back_cancel_kb()
+        )
+    
+    elif current_state == CreateEventStates.DESCRIPTION:
+        await state.set_state(CreateEventStates.MAX_PARTICIPANTS)
+        await message.answer(
+            "[Создание события 4/7]\n\n"
+            "Введите максимальное количество участников:",
+            reply_markup=get_back_cancel_kb()
+        )
+    
+    elif current_state == CreateEventStates.CONTACT:
+        await state.set_state(CreateEventStates.DESCRIPTION)
+        await message.answer(
+            "[Создание события 5/7]\n\n"
+            "📝 Введите описание события (обязательно):",
+            reply_markup=get_back_cancel_kb()
+        )
+    
+    elif current_state == CreateEventStates.CONFIRMATION:
+        await state.set_state(CreateEventStates.CONTACT)
+        await message.answer(
+            "[Создание события 6/7]\n\n"
+            "📞 Введите ваш контакт для связи с участниками:",
+            reply_markup=get_back_cancel_kb()
+        )
+    
+    else:
+        await state.set_state(MainStates.MAIN_MENU)
+        await message.answer("Возврат в главное меню:", reply_markup=get_main_menu_kb())
 
 # === СОЗДАНИЕ СОБЫТИЯ ===
 
 @router.message(F.text == "➕ Создать событие", MainStates.MAIN_MENU)
 async def start_create_event(message: Message, state: FSMContext):
     """Начало создания события"""
-    # Получаем город пользователя
     name, city, onboarded = await db.get_user_profile(message.from_user.id)
     
     if not city:
-        await message.answer("Сначала завершите онбординг. Нажмите /start")
+        await message.answer("❌ Сначала завершите онбординг. Нажмите /start")
         return
     
     await state.update_data(city=city)
@@ -528,6 +645,13 @@ async def start_create_event(message: Message, state: FSMContext):
 @router.message(CreateEventStates.TYPE)
 async def process_event_type(message: Message, state: FSMContext):
     """Обработка выбора типа события"""
+    if message.text == "❌ Отмена":
+        await cancel_anywhere(message, state)
+        return
+    if message.text == "⬅️ Назад":
+        await go_back(message, state)
+        return
+    
     if message.text not in ["🎉 Туса", "🎳 Страйкбол", "🔫 Пейнтбол", "🎯 Другое"]:
         await message.answer(
             "❌ Пожалуйста, выберите тип из предложенных вариантов:",
@@ -558,6 +682,13 @@ async def process_event_type(message: Message, state: FSMContext):
 @router.message(CreateEventStates.TYPE_OTHER)
 async def process_event_type_other(message: Message, state: FSMContext):
     """Обработка ввода названия для типа 'Другое'"""
+    if message.text == "❌ Отмена":
+        await cancel_anywhere(message, state)
+        return
+    if message.text == "⬅️ Назад":
+        await go_back(message, state)
+        return
+    
     custom_type = message.text.strip()
     
     if len(custom_type) < 3:
@@ -578,6 +709,13 @@ async def process_event_type_other(message: Message, state: FSMContext):
 @router.message(CreateEventStates.DATE)
 async def process_event_date(message: Message, state: FSMContext):
     """Обработка ввода даты"""
+    if message.text == "❌ Отмена":
+        await cancel_anywhere(message, state)
+        return
+    if message.text == "⬅️ Назад":
+        await go_back(message, state)
+        return
+    
     date_str = message.text.strip()
     
     try:
@@ -612,6 +750,13 @@ async def process_event_date(message: Message, state: FSMContext):
 @router.message(CreateEventStates.TIME)
 async def process_event_time(message: Message, state: FSMContext):
     """Обработка ввода времени"""
+    if message.text == "❌ Отмена":
+        await cancel_anywhere(message, state)
+        return
+    if message.text == "⬅️ Назад":
+        await go_back(message, state)
+        return
+    
     time_str = message.text.strip()
     
     try:
@@ -637,6 +782,13 @@ async def process_event_time(message: Message, state: FSMContext):
 @router.message(CreateEventStates.MAX_PARTICIPANTS)
 async def process_max_participants(message: Message, state: FSMContext):
     """Обработка ввода максимального количества участников"""
+    if message.text == "❌ Отмена":
+        await cancel_anywhere(message, state)
+        return
+    if message.text == "⬅️ Назад":
+        await go_back(message, state)
+        return
+    
     try:
         max_participants = int(message.text)
         if max_participants < 2:
@@ -652,16 +804,20 @@ async def process_max_participants(message: Message, state: FSMContext):
     await message.answer(
         "[Создание события 5/7]\n\n"
         f"Максимум участников: {max_participants}\n\n"
-        "📝 Введите описание события (обязательно):\n"
-        "• Что будет происходить\n"
-        "• Что взять с собой\n"
-        "• Формат встречи",
+        "📝 Введите описание события:",
         reply_markup=get_back_cancel_kb()
     )
 
 @router.message(CreateEventStates.DESCRIPTION)
 async def process_description(message: Message, state: FSMContext):
     """Обработка ввода описания"""
+    if message.text == "❌ Отмена":
+        await cancel_anywhere(message, state)
+        return
+    if message.text == "⬅️ Назад":
+        await go_back(message, state)
+        return
+    
     description = message.text.strip()
     
     if len(description) < 10:
@@ -677,16 +833,20 @@ async def process_description(message: Message, state: FSMContext):
     await message.answer(
         "[Создание события 6/7]\n\n"
         f"Описание: {description[:100]}...\n\n"
-        "📞 Введите ваш контакт для связи с участниками:\n"
-        "• @username\n"
-        "• https://t.me/username\n"
-        "• Или другой контакт (WhatsApp, Instagram и т.д.)",
+        "📞 Введите ваш контакт для связи с участниками:",
         reply_markup=get_back_cancel_kb()
     )
 
 @router.message(CreateEventStates.CONTACT)
 async def process_contact(message: Message, state: FSMContext):
     """Обработка ввода контакта инициатора"""
+    if message.text == "❌ Отмена":
+        await cancel_anywhere(message, state)
+        return
+    if message.text == "⬅️ Назад":
+        await go_back(message, state)
+        return
+    
     contact = message.text.strip()
     
     if len(contact) < 3:
@@ -720,18 +880,22 @@ async def process_contact(message: Message, state: FSMContext):
 @router.message(CreateEventStates.CONFIRMATION)
 async def process_confirmation(message: Message, state: FSMContext):
     """Обработка подтверждения создания события"""
+    if message.text == "❌ Отмена":
+        await cancel_anywhere(message, state)
+        return
+    if message.text == "⬅️ Назад":
+        await go_back(message, state)
+        return
+    
     if message.text == "✅ Да, создать событие":
         data = await state.get_data()
         
-        # Создаем событие в БД
         event_id = await db.create_event(data, message.from_user.id)
         
-        # Генерируем ссылку для приглашения
         invite_link = f"https://t.me/{bot._me.username}?start=invite_{event_id}_{message.from_user.id}"
         
         event_type = data.get('custom_type') or data['type']
         
-        # Основное сообщение о создании события
         text = (
             "✅ <b>Событие создано!</b>\n\n"
             f"🎯 <b>Тип:</b> {event_type}\n"
@@ -747,7 +911,6 @@ async def process_confirmation(message: Message, state: FSMContext):
         await state.set_state(MainStates.MAIN_MENU)
         await message.answer(text, reply_markup=get_main_menu_kb(), parse_mode="HTML")
         
-        # Отдельное сообщение с инструкциями для инициатора
         instructions = (
             "📌 <b>Что дальше?</b>\n\n"
             "— Люди бронируют участие через бот\n"
@@ -783,16 +946,12 @@ async def process_confirmation(message: Message, state: FSMContext):
 @router.message(F.text == "🔍 Найти событие", MainStates.MAIN_MENU)
 async def start_search(message: Message, state: FSMContext):
     """Начало поиска событий"""
-    # Получаем город пользователя
     name, city, onboarded = await db.get_user_profile(message.from_user.id)
     
     if not city:
-        await message.answer("Сначала завершите онбординг. Нажмите /start")
+        await message.answer("❌ Сначала завершите онбординг. Нажмите /start")
         return
     
-    await state.update_data(search_city=city)
-    
-    # Ищем события в БД
     events = await db.get_events_by_city(city)
     
     if not events:
@@ -811,7 +970,6 @@ async def start_search(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
     
-    # Отправляем список событий
     await message.answer(
         "📋 <b>Список событий:</b>",
         reply_markup=get_event_list_kb(events),
@@ -825,7 +983,6 @@ async def view_event_details(callback: CallbackQuery, state: FSMContext):
     """Просмотр деталей события"""
     event_id = int(callback.data.split("_")[2])
     
-    # Получаем детали события
     event = await db.get_event_details(event_id)
     
     if not event:
@@ -837,21 +994,17 @@ async def view_event_details(callback: CallbackQuery, state: FSMContext):
         )
         return
     
-    # Распаковываем данные
     (event_type, custom_type, city, date, time, max_participants, 
      description, contact, status, creator_id, creator_username, 
      creator_name, confirmed_count) = event
     
     display_type = custom_type or event_type
     
-    # Сохраняем event_id в состоянии
     await state.update_data(current_event_id=event_id)
     await state.set_state(MainStates.VIEWING_EVENT)
     
-    # Проверяем, является ли пользователь подтвержденным участником
     is_confirmed = await db.is_user_confirmed(event_id, callback.from_user.id)
     
-    # Формируем текст
     text = (
         f"📋 <b>Детали события:</b>\n\n"
         f"🎯 <b>Тип:</b> {display_type}\n"
@@ -870,19 +1023,11 @@ async def view_event_details(callback: CallbackQuery, state: FSMContext):
     else:
         text += "<i>Для бронирования нажмите кнопку 'Забронировать'</i>"
     
-    if callback.message.text:
-        await callback.message.edit_text(
-            text, 
-            reply_markup=get_event_details_kb(event_id, callback.from_user.id, is_confirmed), 
-            parse_mode="HTML"
-        )
-    else:
-        await callback.message.answer(
-            text, 
-            reply_markup=get_event_details_kb(event_id, callback.from_user.id, is_confirmed), 
-            parse_mode="HTML"
-        )
-    
+    await callback.message.edit_text(
+        text, 
+        reply_markup=get_event_details_kb(event_id, callback.from_user.id, is_confirmed), 
+        parse_mode="HTML"
+    )
     await callback.answer()
 
 # === БРОНИРОВАНИЕ И ОПЛАТА ===
@@ -892,7 +1037,6 @@ async def join_event_start(callback: CallbackQuery, state: FSMContext):
     """Начало бронирования события"""
     event_id = int(callback.data.split("_")[1])
     
-    # Получаем детали события
     event = await db.get_event_details(event_id)
     
     if not event:
@@ -905,7 +1049,6 @@ async def join_event_start(callback: CallbackQuery, state: FSMContext):
     
     display_type = custom_type or event_type
     
-    # Сохраняем данные в состоянии
     await state.update_data(join_event_id=event_id)
     await state.set_state(JoinEventStates.PAYMENT_INFO)
     
@@ -928,22 +1071,18 @@ async def process_payment(callback: CallbackQuery, state: FSMContext):
     """Обработка подтверждения оплаты"""
     event_id = int(callback.data.split("_")[1])
     
-    # Добавляем участника в событие (статус PENDING)
     success, message = await db.add_participant(event_id, callback.from_user.id)
     
     if not success:
         await callback.answer(f"❌ {message}")
         return
     
-    # Сразу подтверждаем участника (автоматически, без модерации)
     await db.confirm_participant(event_id, callback.from_user.id)
     
-    # Получаем информацию о пользователе
     name, city, onboarded = await db.get_user_profile(callback.from_user.id)
     participant_name = name or callback.from_user.first_name or "Пользователь"
     participant_username = callback.from_user.username or "нет username"
     
-    # Получаем детали события для показа пользователю
     event = await db.get_event_details(event_id)
     if event:
         (event_type, custom_type, event_city, date, time, max_participants, 
@@ -952,7 +1091,6 @@ async def process_payment(callback: CallbackQuery, state: FSMContext):
         
         display_type = custom_type or event_type
         
-        # Отправляем уведомление инициатору
         creator_telegram_id = await db.get_creator_telegram_id(event_id)
         if creator_telegram_id:
             try:
@@ -965,9 +1103,8 @@ async def process_payment(callback: CallbackQuery, state: FSMContext):
                     parse_mode="HTML"
                 )
             except:
-                pass  # Игнорируем ошибки отправки
+                pass
         
-        # Показываем подтверждение пользователю
         text = (
             "✅ <b>Оплата подтверждена!</b>\n\n"
             "Вы успешно забронировали участие в событии.\n\n"
@@ -985,7 +1122,6 @@ async def process_payment(callback: CallbackQuery, state: FSMContext):
         await state.set_state(MainStates.MAIN_MENU)
         await callback.message.edit_text(text, parse_mode="HTML")
         
-        # Кнопка для приглашения друга
         await callback.message.answer(
             "📲 Пригласите друзей:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
@@ -1068,17 +1204,14 @@ async def cmd_start_with_invite(message: Message, state: FSMContext):
     """Обработка /start с инвайт-параметром"""
     args = message.text.split()
     
-    # Проверяем инвайт-ссылку
     if len(args) > 1 and args[1].startswith("invite_"):
         try:
             parts = args[1].split("_")
             event_id = int(parts[1])
             inviter_id = int(parts[2]) if len(parts) > 2 else None
             
-            # Всегда добавляем пользователя в БД
             await db.add_user(message.from_user.id, message.from_user.username)
             
-            # Проверяем онбординг
             name, city, onboarded = await db.get_user_profile(message.from_user.id)
             
             if not onboarded:
@@ -1092,16 +1225,13 @@ async def cmd_start_with_invite(message: Message, state: FSMContext):
                 )
                 return
             else:
-                # Показываем событие
                 await show_event_details(message, event_id, inviter_id)
                 return
         except Exception as e:
             logging.error(f"Error processing invite: {e}")
     
-    # Обычный /start без инвайта
     await db.add_user(message.from_user.id, message.from_user.username)
     
-    # Проверяем онбординг
     name, city, onboarded = await db.get_user_profile(message.from_user.id)
     
     if not onboarded:
@@ -1116,10 +1246,7 @@ async def cmd_start_with_invite(message: Message, state: FSMContext):
         await state.set_state(MainStates.MAIN_MENU)
         await message.answer(
             f"👋 Привет, {name}!\n\n"
-            "VIBEZ — бот для создания и поиска реальных событий в твоём городе.\n\n"
-            "🔍 Найти событие\n"
-            "➕ Создать событие\n"
-            "💳 Забронировать участие",
+            "VIBEZ — бот для создания и поиска реальных событий в твоём городе.\n",
             reply_markup=get_main_menu_kb()
         )
 
@@ -1129,9 +1256,9 @@ async def cmd_start_with_invite(message: Message, state: FSMContext):
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
     """Возврат в главное меню"""
     await state.set_state(MainStates.MAIN_MENU)
-    await callback.message.edit_text("Выберите действие:")
+    await callback.message.edit_text("Возврат в главное меню:")
     await callback.message.answer(
-        "Главное меню:",
+        "Выберите действие:",
         reply_markup=get_main_menu_kb()
     )
     await callback.answer()
@@ -1139,22 +1266,21 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "back_to_search")
 async def back_to_search(callback: CallbackQuery, state: FSMContext):
     """Возврат к поиску"""
-    data = await state.get_data()
-    city = data.get('search_city', 'неизвестный город')
+    await state.set_state(SearchEventsStates.SELECT_EVENT)
     
+    name, city, onboarded = await db.get_user_profile(callback.from_user.id)
     events = await db.get_events_by_city(city)
     
     if events:
-        await state.set_state(SearchEventsStates.SELECT_EVENT)
         text = f"✅ <b>Найдено событий в {city}: {len(events)}</b>\n\nВыберите событие:"
         await callback.message.edit_text(text, reply_markup=get_event_list_kb(events), parse_mode="HTML")
     else:
-        await state.set_state(SearchEventsStates.ENTER_CITY)
-        await callback.message.edit_text("Выберите город для поиска:")
+        await callback.message.edit_text(f"😔 <b>В городе {city} пока нет активных событий.</b>", parse_mode="HTML")
         await callback.message.answer(
-            "🏙️ Выберите город для поиска событий:",
-            reply_markup=get_cities_keyboard()
+            "Возврат в главное меню:",
+            reply_markup=get_main_menu_kb()
         )
+        await state.set_state(MainStates.MAIN_MENU)
     
     await callback.answer()
 
@@ -1210,41 +1336,28 @@ async def handle_unexpected_input(message: Message, state: FSMContext):
         )
         return
     
-    # Определяем текущий режим и подсказываем
-    if "CreateEventStates" in str(current_state):
-        step_info = {
-            "CreateEventStates:TYPE": "[Создание события 1/7]",
-            "CreateEventStates:TYPE_OTHER": "[Создание события 1/7]",
-            "CreateEventStates:DATE": "[Создание события 2/7]",
-            "CreateEventStates:TIME": "[Создание события 3/7]",
-            "CreateEventStates:MAX_PARTICIPANTS": "[Создание события 4/7]",
-            "CreateEventStates:DESCRIPTION": "[Создание события 5/7]",
-            "CreateEventStates:CONTACT": "[Создание события 6/7]",
-            "CreateEventStates:CONFIRMATION": "[Создание события 7/7]"
-        }.get(str(current_state), "")
-        
+    state_map = {
+        "CreateEventStates:TYPE": ("✋ <b>Сейчас вы создаёте событие.</b> Шаг 1/7: выберите тип события.", get_event_types_kb()),
+        "CreateEventStates:TYPE_OTHER": ("✋ <b>Сейчас вы создаёте событие.</b> Шаг 1/7: введите название события.", get_back_cancel_kb()),
+        "CreateEventStates:DATE": ("✋ <b>Сейчас вы создаёте событие.</b> Шаг 2/7: введите дату.", get_back_cancel_kb()),
+        "CreateEventStates:TIME": ("✋ <b>Сейчас вы создаёте событие.</b> Шаг 3/7: введите время.", get_back_cancel_kb()),
+        "CreateEventStates:MAX_PARTICIPANTS": ("✋ <b>Сейчас вы создаёте событие.</b> Шаг 4/7: введите лимит участников.", get_back_cancel_kb()),
+        "CreateEventStates:DESCRIPTION": ("✋ <b>Сейчас вы создаёте событие.</b> Шаг 5/7: введите описание.", get_back_cancel_kb()),
+        "CreateEventStates:CONTACT": ("✋ <b>Сейчас вы создаёте событие.</b> Шаг 6/7: введите контакт.", get_back_cancel_kb()),
+        "CreateEventStates:CONFIRMATION": ("✋ <b>Сейчас вы создаёте событие.</b> Шаг 7/7: подтвердите данные.", get_confirm_kb()),
+        "OnboardingStates:NAME": ("✋ <b>Сейчас вы проходите онбординг.</b> Введите ваше имя.", ReplyKeyboardRemove()),
+        "OnboardingStates:CITY": ("✋ <b>Сейчас вы проходите онбординг.</b> Выберите город.", None),
+        "SearchEventsStates:SELECT_EVENT": ("✋ <b>Сейчас вы в поиске событий.</b> Выберите событие из списка.", ReplyKeyboardRemove()),
+        "JoinEventStates:PAYMENT_INFO": ("✋ <b>Сейчас вы бронируете участие.</b> Оплатите по ссылке и нажмите 'Я оплатил'.", None),
+    }
+    
+    if str(current_state) in state_map:
+        text, markup = state_map[str(current_state)]
         await message.answer(
-            f"{step_info}\n\n"
-            "✋ <b>Сейчас вы создаёте событие.</b>\n\n"
-            "Пожалуйста, используйте кнопки или введите запрошенные данные.\n"
-            "Нажмите '⬅️ Назад' для возврата или '❌ Отмена' для выхода.",
-            reply_markup=get_back_cancel_kb(),
-            parse_mode="HTML"
-        )
-    elif "SearchEventsStates" in str(current_state):
-        await message.answer(
-            "✋ <b>Сейчас вы находитесь в режиме поиска.</b>\n\n"
-            "Выберите событие из списка или используйте кнопки навигации.\n"
-            "Нажмите '⬅️ Назад' для возврата или '❌ Отмена' для выхода.",
-            reply_markup=ReplyKeyboardRemove(),
-            parse_mode="HTML"
-        )
-    elif "JoinEventStates" in str(current_state):
-        await message.answer(
-            "✋ <b>Сейчас вы записываетесь на событие.</b>\n\n"
-            "Используйте кнопки для навигации.\n"
-            "Нажмите '⬅️ Назад' для возврата или '❌ Отмена' для выхода.",
-            reply_markup=get_back_cancel_kb(),
+            f"{text}\n\n"
+            "Пожалуйста, используйте кнопки навигации.\n"
+            "Нажмите '⬅️ Назад' для возврата или '❌ Отмена' для выхода в главное меню.",
+            reply_markup=markup,
             parse_mode="HTML"
         )
     else:
@@ -1259,10 +1372,8 @@ async def handle_unexpected_input(message: Message, state: FSMContext):
 
 async def main():
     """Основная функция запуска бота"""
-    # Инициализация БД
     await db.init_db()
     
-    # Удаляем вебхук и запускаем polling
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
