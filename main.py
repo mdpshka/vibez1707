@@ -26,6 +26,48 @@ ADMIN_IDS = [931410785]
 PLATFORM_FEE = 99
 PAYMENT_LINK = "https://yoomoney.ru/pay/..."
 
+# === КОНСТАНТЫ ТЕКСТОВ КНОПОК ===
+BTN_FIND = "🔍 Найти событие"
+BTN_CREATE = "➕ Создать событие"
+BTN_PROFILE = "👤 Мой профиль"
+BTN_HELP = "ℹ️ Как пользоваться"
+BTN_MY_EVENTS = "🎯 Мои события"
+BTN_MY_BOOKINGS = "📋 Мои брони"
+BTN_ADMIN = "👑 Админка"
+BTN_BACK = "⬅️ Назад"
+BTN_CANCEL = "❌ Отмена"
+BTN_CONFIRM = "✅ Да, создать событие"
+BTN_EDIT = "✏️ Нет, исправить"
+
+# === CALLBACK DATA PREFIXES ===
+CB_CITY_SELECT = "city:select:"
+CB_CITY_PAGE = "city:page:"
+CB_ONBOARDING_CANCEL = "onboarding:cancel"
+
+CB_EVENT_VIEW = "event:view:"
+CB_EVENT_JOIN = "event:join:"
+CB_EVENT_PAID = "event:paid:"
+CB_EVENT_BACK = "event:back:"
+CB_EVENT_INVITE = "event:invite:"
+CB_EVENT_MY = "event:my:"
+CB_EVENT_PARTICIPANTS = "event:participants:"
+CB_EVENT_SET_CHATLINK = "event:set_chatlink:"
+
+CB_PROFILE_MY_BOOKINGS = "profile:my_bookings"
+CB_PROFILE_MY_EVENTS = "profile:my_events"
+
+CB_NAV_BACK_TO_MAIN = "nav:back_to_main"
+CB_NAV_BACK_TO_PROFILE = "nav:back_to_profile"
+CB_NAV_BACK_TO_MY_EVENTS = "nav:back_to_my_events"
+CB_NAV_BACK_TO_SEARCH = "nav:back_to_search"
+
+CB_ADMIN_PANEL = "admin:panel"
+CB_ADMIN_STATS = "admin:stats"
+CB_ADMIN_ALL_USERS = "admin:all_users"
+CB_ADMIN_ALL_EVENTS = "admin:all_events"
+
+CB_USER_INFO = "user:info:"
+
 # === FSM СТРУКТУРА ===
 class MainStates(StatesGroup):
     MAIN_MENU = State()
@@ -493,7 +535,8 @@ def get_cities_keyboard(page=0, items_per_page=8):
     buttons = []
     row = []
     for i, city in enumerate(cities_slice):
-        row.append(InlineKeyboardButton(text=city, callback_data=f"city_select_{city}"))
+        # city select callback: city:select:<city>
+        row.append(InlineKeyboardButton(text=city, callback_data=f"{CB_CITY_SELECT}{city}"))
         if i % 2 == 1:
             buttons.append(row)
             row = []
@@ -502,38 +545,50 @@ def get_cities_keyboard(page=0, items_per_page=8):
     
     nav_buttons = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"city_page_{page-1}"))
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"{CB_CITY_PAGE}{page-1}"))
     if end_idx < len(CITIES):
-        nav_buttons.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"city_page_{page+1}"))
+        nav_buttons.append(InlineKeyboardButton(text="Вперед ➡️", callback_data=f"{CB_CITY_PAGE}{page+1}"))
     
     if nav_buttons:
         buttons.append(nav_buttons)
     
-    buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_onboarding")])
+    buttons.append([InlineKeyboardButton(text=BTN_CANCEL, callback_data=CB_ONBOARDING_CANCEL)])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_main_menu_kb(telegram_id):
     """Главное меню с учетом роли пользователя"""
-    keyboard = []
-    
+    items = []
     if telegram_id in ADMIN_IDS:
-        keyboard.append([KeyboardButton(text="👑 Админка")])
-    
-    keyboard.extend([
-        [KeyboardButton(text="🔍 Найти событие")],
-        [KeyboardButton(text="➕ Создать событие")],
-        [KeyboardButton(text="👤 Мой профиль")],
-        [KeyboardButton(text="ℹ️ Как пользоваться")]
+        items.append(KeyboardButton(text=BTN_ADMIN))
+
+    items.extend([
+        KeyboardButton(text=BTN_FIND),
+        KeyboardButton(text=BTN_CREATE),
+        KeyboardButton(text=BTN_PROFILE),
+        KeyboardButton(text=BTN_HELP)
     ])
-    
+
+    # Group buttons by 2 per row
+    keyboard = []
+    row = []
+    for btn in items:
+        row.append(btn)
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        # fill the row to keep layout consistent
+        row.append(KeyboardButton(text=BTN_HELP))
+        keyboard.append(row)
+
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 def get_back_cancel_kb():
     """Кнопки Назад/Отмена для FSM"""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="⬅️ Назад"), KeyboardButton(text="❌ Отмена")]
+            [KeyboardButton(text=BTN_BACK), KeyboardButton(text=BTN_CANCEL)]
         ],
         resize_keyboard=True
     )
@@ -544,7 +599,7 @@ def get_event_types_kb():
         keyboard=[
             [KeyboardButton(text="🎉 Туса"), KeyboardButton(text="🎳 Страйкбол")],
             [KeyboardButton(text="🔫 Пейнтбол"), KeyboardButton(text="🎯 Другое")],
-            [KeyboardButton(text="⬅️ Назад"), KeyboardButton(text="❌ Отмена")]
+            [KeyboardButton(text=BTN_BACK), KeyboardButton(text=BTN_CANCEL)]
         ],
         resize_keyboard=True
     )
@@ -553,9 +608,8 @@ def get_confirm_kb():
     """Кнопки для подтверждения"""
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="✅ Да, создать событие")],
-            [KeyboardButton(text="✏️ Нет, исправить")],
-            [KeyboardButton(text="⬅️ Назад"), KeyboardButton(text="❌ Отмена")]
+            [KeyboardButton(text=BTN_CONFIRM), KeyboardButton(text=BTN_EDIT)],
+            [KeyboardButton(text=BTN_BACK), KeyboardButton(text=BTN_CANCEL)]
         ],
         resize_keyboard=True
     )
@@ -569,10 +623,10 @@ def get_event_list_kb(events):
         buttons.append([
             InlineKeyboardButton(
                 text=f"{event_type[:20]} • {confirmed_count}/{max_participants} • {date_time}",
-                callback_data=f"view_event_{event_id}"
+                callback_data=f"{CB_EVENT_VIEW}{event_id}"
             )
         ])
-    buttons.append([InlineKeyboardButton(text="⬅️ В главное меню", callback_data="back_to_main")])
+    buttons.append([InlineKeyboardButton(text=BTN_BACK, callback_data=CB_NAV_BACK_TO_MAIN)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_event_details_kb(event_id, user_telegram_id, is_confirmed=False):
@@ -580,13 +634,12 @@ def get_event_details_kb(event_id, user_telegram_id, is_confirmed=False):
     buttons = []
     
     if not is_confirmed:
-        buttons.append([InlineKeyboardButton(text="💳 Забронировать", callback_data=f"join_{event_id}")])
+        buttons.append([InlineKeyboardButton(text="💳 Забронировать", callback_data=f"{CB_EVENT_JOIN}{event_id}")])
     
     buttons.append([
-        InlineKeyboardButton(text="📲 Пригласить друга", 
-                           callback_data=f"invite_{event_id}_{user_telegram_id}")
+        InlineKeyboardButton(text="📲 Пригласить друга", callback_data=f"{CB_EVENT_INVITE}{event_id}:{user_telegram_id}")
     ])
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад к списку", callback_data="back_to_search")])
+    buttons.append([InlineKeyboardButton(text=BTN_BACK, callback_data=CB_NAV_BACK_TO_SEARCH)])
     
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -595,8 +648,8 @@ def get_payment_kb(event_id):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="💳 Оплатить 99 ₽", url=PAYMENT_LINK)],
-            [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"paid_{event_id}")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"back_to_event_{event_id}")]
+            [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"{CB_EVENT_PAID}{event_id}")],
+            [InlineKeyboardButton(text=BTN_BACK, callback_data=f"{CB_EVENT_BACK}{event_id}")]
         ]
     )
 
@@ -605,14 +658,14 @@ def get_profile_kb(telegram_id, is_creator=False):
     keyboard = []
     
     if telegram_id in ADMIN_IDS:
-        keyboard.append([InlineKeyboardButton(text="👑 Админ-панель", callback_data="admin_panel")])
+        keyboard.append([InlineKeyboardButton(text=BTN_ADMIN, callback_data=CB_ADMIN_PANEL)])
     
-    keyboard.append([InlineKeyboardButton(text="📋 Мои брони", callback_data="my_bookings")])
+    keyboard.append([InlineKeyboardButton(text=BTN_MY_BOOKINGS, callback_data=CB_PROFILE_MY_BOOKINGS)])
     
-    if is_creator:
-        keyboard.append([InlineKeyboardButton(text="🎯 Мои события", callback_data="my_events")])
+    # Доступ к моим событиям — всегда (обработчик покажет, если их нет)
+    keyboard.append([InlineKeyboardButton(text=BTN_MY_EVENTS, callback_data=CB_PROFILE_MY_EVENTS)])
     
-    keyboard.append([InlineKeyboardButton(text="⬅️ В главное меню", callback_data="back_to_main")])
+    keyboard.append([InlineKeyboardButton(text=BTN_BACK + " в главное меню", callback_data=CB_NAV_BACK_TO_MAIN)])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -620,10 +673,10 @@ def get_admin_kb():
     """Клавиатура админки"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats")],
-            [InlineKeyboardButton(text="👥 Все пользователи", callback_data="admin_all_users")],
-            [InlineKeyboardButton(text="🎯 Все события", callback_data="admin_all_events")],
-            [InlineKeyboardButton(text="⬅️ В профиль", callback_data="back_to_profile")]
+            [InlineKeyboardButton(text="📊 Статистика", callback_data=CB_ADMIN_STATS)],
+            [InlineKeyboardButton(text="👥 Все пользователи", callback_data=CB_ADMIN_ALL_USERS)],
+            [InlineKeyboardButton(text="🎯 Все события", callback_data=CB_ADMIN_ALL_EVENTS)],
+            [InlineKeyboardButton(text="⬅️ В профиль", callback_data=CB_NAV_BACK_TO_PROFILE)]
         ]
     )
 
@@ -639,11 +692,11 @@ def get_my_events_kb(events):
         buttons.append([
             InlineKeyboardButton(
                 text=text,
-                callback_data=f"my_event_{event_id}"
+                callback_data=f"{CB_EVENT_MY}{event_id}"
             )
         ])
     
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_profile")])
+    buttons.append([InlineKeyboardButton(text=BTN_BACK, callback_data=CB_NAV_BACK_TO_PROFILE)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_my_bookings_kb(bookings):
@@ -660,19 +713,19 @@ def get_my_bookings_kb(bookings):
         buttons.append([
             InlineKeyboardButton(
                 text=text,
-                callback_data=f"view_event_{event_id}"
+                callback_data=f"{CB_EVENT_VIEW}{event_id}"
             )
         ])
     
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_profile")])
+    buttons.append([InlineKeyboardButton(text=BTN_BACK, callback_data=CB_NAV_BACK_TO_PROFILE)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_event_manage_kb(event_id):
     """Клавиатура для управления событием"""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="👥 Список участников", callback_data=f"event_participants_{event_id}")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_my_events")]
+            [InlineKeyboardButton(text="👥 Список участников", callback_data=f"{CB_EVENT_PARTICIPANTS}{event_id}")],
+            [InlineKeyboardButton(text=BTN_BACK, callback_data=CB_NAV_BACK_TO_MY_EVENTS)]
         ]
     )
 
@@ -686,11 +739,11 @@ def get_participants_kb(event_id, participants):
         buttons.append([
             InlineKeyboardButton(
                 text=f"👤 {display_name[:25]}",
-                callback_data=f"user_info_{telegram_id}"
+                callback_data=f"{CB_USER_INFO}{telegram_id}"
             )
         ])
     
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=f"my_event_{event_id}")])
+    buttons.append([InlineKeyboardButton(text=BTN_BACK, callback_data=f"{CB_EVENT_MY}{event_id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # === ОБРАБОТЧИКИ КНОПОК ГЛАВНОГО МЕНЮ ===
@@ -749,12 +802,14 @@ async def cmd_start(message: Message, state: FSMContext):
                     else:
                         text += "<i>Для бронирования нажмите кнопку 'Забронировать'</i>"
                     
+                    await state.set_state(MainStates.VIEWING_EVENT)
+                    await state.update_data(current_event_id=event_id)
+                    
                     await message.answer(
                         text, 
                         reply_markup=get_event_details_kb(event_id, message.from_user.id, is_confirmed), 
                         parse_mode="HTML"
                     )
-                    await state.set_state(MainStates.VIEWING_EVENT)
                 else:
                     await message.answer("❌ Событие не найдено")
                 return
@@ -782,7 +837,7 @@ async def cmd_start(message: Message, state: FSMContext):
             reply_markup=get_main_menu_kb(message.from_user.id)
         )
 
-@router.message(F.text == "👤 Мой профиль", MainStates.MAIN_MENU)
+@router.message(F.text == BTN_PROFILE, MainStates.MAIN_MENU)
 async def my_profile(message: Message, state: FSMContext):
     """Мой профиль - полная информация"""
     user_info = await db.get_user_full_info(message.from_user.id)
@@ -814,15 +869,17 @@ async def my_profile(message: Message, state: FSMContext):
     user_events = await db.get_user_created_events(message.from_user.id)
     is_creator = len(user_events) > 0
     
+    await state.set_state(MainStates.MAIN_MENU)
     await message.answer(
         profile_text,
         parse_mode="HTML",
         reply_markup=get_profile_kb(message.from_user.id, is_creator)
     )
 
-@router.message(F.text == "ℹ️ Как пользоваться", MainStates.MAIN_MENU)
+@router.message(F.text == BTN_HELP, MainStates.MAIN_MENU)
 async def how_to_use(message: Message, state: FSMContext):
     """Как пользоваться"""
+    await state.set_state(MainStates.MAIN_MENU)
     await message.answer(
         "📖 <b>Как пользоваться VIBEZ:</b>\n\n"
         "1. 🔍 <b>Найти событие</b> — ищешь активные события в твоём городе\n"
@@ -838,13 +895,14 @@ async def how_to_use(message: Message, state: FSMContext):
         reply_markup=get_main_menu_kb(message.from_user.id)
     )
 
-@router.message(F.text == "👑 Админка", MainStates.MAIN_MENU)
+@router.message(F.text == BTN_ADMIN, MainStates.MAIN_MENU)
 async def admin_access(message: Message, state: FSMContext):
     """Доступ к админке из главного меню"""
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("⛔ У вас нет доступа к админке")
         return
     
+    await state.set_state(MainStates.MAIN_MENU)
     await message.answer(
         "👑 <b>Панель администратора</b>\n\n"
         "Выберите действие:",
@@ -857,7 +915,7 @@ async def admin_access(message: Message, state: FSMContext):
 @router.message(OnboardingStates.NAME)
 async def process_name(message: Message, state: FSMContext):
     """Обработка ввода имени при онбординге"""
-    if message.text == "❌ Отмена":
+    if message.text == BTN_CANCEL:
         await state.clear()
         await state.set_state(MainStates.MAIN_MENU)
         await message.answer("Онбординг отменен.", reply_markup=get_main_menu_kb(message.from_user.id))
@@ -877,10 +935,10 @@ async def process_name(message: Message, state: FSMContext):
         reply_markup=get_cities_keyboard()
     )
 
-@router.callback_query(F.data.startswith("city_select_"))
+@router.callback_query(F.data.startswith(CB_CITY_SELECT))
 async def process_city_selection(callback: CallbackQuery, state: FSMContext):
     """Обработка выбора города"""
-    city = callback.data.split("city_select_", 1)[1]
+    city = callback.data.split(CB_CITY_SELECT, 1)[1]
     data = await state.get_data()
     name = data['name']
     
@@ -891,7 +949,8 @@ async def process_city_selection(callback: CallbackQuery, state: FSMContext):
     
     if invite_event_id:
         # Показываем событие, на которое пригласили
-        await state.clear()
+        await state.set_state(MainStates.VIEWING_EVENT)
+        await state.update_data(current_event_id=invite_event_id)
         
         event = await db.get_event_details(invite_event_id)
         if event:
@@ -926,7 +985,6 @@ async def process_city_selection(callback: CallbackQuery, state: FSMContext):
                 reply_markup=get_event_details_kb(invite_event_id, callback.from_user.id, is_confirmed), 
                 parse_mode="HTML"
             )
-            await state.set_state(MainStates.VIEWING_EVENT)
         else:
             await callback.message.edit_text(
                 f"👋 Привет, {name}!\n\n"
@@ -951,14 +1009,14 @@ async def process_city_selection(callback: CallbackQuery, state: FSMContext):
         )
     await callback.answer()
 
-@router.callback_query(F.data.startswith("city_page_"))
+@router.callback_query(F.data.startswith(CB_CITY_PAGE))
 async def process_city_pagination(callback: CallbackQuery, state: FSMContext):
     """Обработка пагинации городов"""
-    page = int(callback.data.split("city_page_")[1])
+    page = int(callback.data.split(CB_CITY_PAGE)[1])
     await callback.message.edit_reply_markup(reply_markup=get_cities_keyboard(page))
     await callback.answer()
 
-@router.callback_query(F.data == "cancel_onboarding")
+@router.callback_query(F.data == CB_ONBOARDING_CANCEL)
 async def cancel_onboarding(callback: CallbackQuery, state: FSMContext):
     """Отмена онбординга"""
     await state.clear()
@@ -972,8 +1030,8 @@ async def cancel_onboarding(callback: CallbackQuery, state: FSMContext):
 
 # === КНОПКИ НАЗАД/ОТМЕНА ===
 
-@router.message(F.text == "❌ Отмена", StateFilter(None, default_state))
-@router.message(F.text == "❌ Отмена")
+@router.message(F.text == BTN_CANCEL, StateFilter(None, default_state))
+@router.message(F.text == BTN_CANCEL)
 async def cancel_anywhere(message: Message, state: FSMContext):
     """Отмена в любом состоянии"""
     await state.clear()
@@ -983,7 +1041,7 @@ async def cancel_anywhere(message: Message, state: FSMContext):
         reply_markup=get_main_menu_kb(message.from_user.id)
     )
 
-@router.message(F.text == "⬅️ Назад")
+@router.message(F.text == BTN_BACK)
 async def go_back(message: Message, state: FSMContext):
     """Назад в любом состоянии"""
     current_state = await state.get_state()
@@ -1046,7 +1104,7 @@ async def go_back(message: Message, state: FSMContext):
         await state.set_state(CreateEventStates.CONTACT)
         await message.answer(
             "[Создание события 6/7]\n\n"
-            "📞 Введите ваш контакт для связи с участниками:",
+            "📞 Введите ваш контакт для связи с участников:",
             reply_markup=get_back_cancel_kb()
         )
     
@@ -1056,7 +1114,7 @@ async def go_back(message: Message, state: FSMContext):
 
 # === СОЗДАНИЕ СОБЫТИЯ ===
 
-@router.message(F.text == "➕ Создать событие", MainStates.MAIN_MENU)
+@router.message(F.text == BTN_CREATE, MainStates.MAIN_MENU)
 async def start_create_event(message: Message, state: FSMContext):
     """Начало создания события"""
     name, city, onboarded = await db.get_user_profile(message.from_user.id)
@@ -1077,10 +1135,10 @@ async def start_create_event(message: Message, state: FSMContext):
 @router.message(CreateEventStates.TYPE)
 async def process_event_type(message: Message, state: FSMContext):
     """Обработка выбора типа события"""
-    if message.text == "❌ Отмена":
+    if message.text == BTN_CANCEL:
         await cancel_anywhere(message, state)
         return
-    if message.text == "⬅️ Назад":
+    if message.text == BTN_BACK:
         await go_back(message, state)
         return
     
@@ -1114,10 +1172,10 @@ async def process_event_type(message: Message, state: FSMContext):
 @router.message(CreateEventStates.TYPE_OTHER)
 async def process_event_type_other(message: Message, state: FSMContext):
     """Обработка ввода названия для типа 'Другое'"""
-    if message.text == "❌ Отмена":
+    if message.text == BTN_CANCEL:
         await cancel_anywhere(message, state)
         return
-    if message.text == "⬅️ Назад":
+    if message.text == BTN_BACK:
         await go_back(message, state)
         return
     
@@ -1141,10 +1199,10 @@ async def process_event_type_other(message: Message, state: FSMContext):
 @router.message(CreateEventStates.DATE)
 async def process_event_date(message: Message, state: FSMContext):
     """Обработка ввода даты"""
-    if message.text == "❌ Отмена":
+    if message.text == BTN_CANCEL:
         await cancel_anywhere(message, state)
         return
-    if message.text == "⬅️ Назад":
+    if message.text == BTN_BACK:
         await go_back(message, state)
         return
     
@@ -1182,10 +1240,10 @@ async def process_event_date(message: Message, state: FSMContext):
 @router.message(CreateEventStates.TIME)
 async def process_event_time(message: Message, state: FSMContext):
     """Обработка ввода времени"""
-    if message.text == "❌ Отмена":
+    if message.text == BTN_CANCEL:
         await cancel_anywhere(message, state)
         return
-    if message.text == "⬅️ Назад":
+    if message.text == BTN_BACK:
         await go_back(message, state)
         return
     
@@ -1214,10 +1272,10 @@ async def process_event_time(message: Message, state: FSMContext):
 @router.message(CreateEventStates.MAX_PARTICIPANTS)
 async def process_max_participants(message: Message, state: FSMContext):
     """Обработка ввода максимального количества участников"""
-    if message.text == "❌ Отмена":
+    if message.text == BTN_CANCEL:
         await cancel_anywhere(message, state)
         return
-    if message.text == "⬅️ Назад":
+    if message.text == BTN_BACK:
         await go_back(message, state)
         return
     
@@ -1243,10 +1301,10 @@ async def process_max_participants(message: Message, state: FSMContext):
 @router.message(CreateEventStates.DESCRIPTION)
 async def process_description(message: Message, state: FSMContext):
     """Обработка ввода описания"""
-    if message.text == "❌ Отмена":
+    if message.text == BTN_CANCEL:
         await cancel_anywhere(message, state)
         return
-    if message.text == "⬅️ Назад":
+    if message.text == BTN_BACK:
         await go_back(message, state)
         return
     
@@ -1272,10 +1330,10 @@ async def process_description(message: Message, state: FSMContext):
 @router.message(CreateEventStates.CONTACT)
 async def process_contact(message: Message, state: FSMContext):
     """Обработка ввода контакта инициатора"""
-    if message.text == "❌ Отмена":
+    if message.text == BTN_CANCEL:
         await cancel_anywhere(message, state)
         return
-    if message.text == "⬅️ Назад":
+    if message.text == BTN_BACK:
         await go_back(message, state)
         return
     
@@ -1312,14 +1370,14 @@ async def process_contact(message: Message, state: FSMContext):
 @router.message(CreateEventStates.CONFIRMATION)
 async def process_confirmation(message: Message, state: FSMContext):
     """Обработка подтверждения создания события"""
-    if message.text == "❌ Отмена":
+    if message.text == BTN_CANCEL:
         await cancel_anywhere(message, state)
         return
-    if message.text == "⬅️ Назад":
+    if message.text == BTN_BACK:
         await go_back(message, state)
         return
     
-    if message.text == "✅ Да, создать событие":
+    if message.text == BTN_CONFIRM:
         data = await state.get_data()
         
         event_id = await db.create_event(data, message.from_user.id)
@@ -1357,7 +1415,7 @@ async def process_confirmation(message: Message, state: FSMContext):
         
         await message.answer(instructions, parse_mode="HTML")
         
-    elif message.text == "✏️ Нет, исправить":
+    elif message.text == BTN_EDIT:
         await state.set_state(CreateEventStates.TYPE)
         await message.answer(
             "[Создание события 1/7]\n\n"
@@ -1372,7 +1430,7 @@ async def process_confirmation(message: Message, state: FSMContext):
 
 # === ПОИСК СОБЫТИЙ ===
 
-@router.message(F.text == "🔍 Найти событие", MainStates.MAIN_MENU)
+@router.message(F.text == BTN_FIND, MainStates.MAIN_MENU)
 async def start_search(message: Message, state: FSMContext):
     """Начало поиска событий"""
     name, city, onboarded = await db.get_user_profile(message.from_user.id)
@@ -1407,10 +1465,10 @@ async def start_search(message: Message, state: FSMContext):
 
 # === ПРОСМОТР СОБЫТИЯ ===
 
-@router.callback_query(F.data.startswith("view_event_"))
+@router.callback_query(F.data.startswith(CB_EVENT_VIEW), SearchEventsStates.SELECT_EVENT)
 async def view_event_details(callback: CallbackQuery, state: FSMContext):
     """Просмотр деталей события"""
-    event_id = int(callback.data.split("_")[2])
+    event_id = int(callback.data.split(CB_EVENT_VIEW, 1)[1])
     
     event = await db.get_event_details(event_id)
     
@@ -1461,10 +1519,10 @@ async def view_event_details(callback: CallbackQuery, state: FSMContext):
 
 # === БРОНИРОВАНИЕ И ОПЛАТА ===
 
-@router.callback_query(F.data.startswith("join_"))
+@router.callback_query(F.data.startswith(CB_EVENT_JOIN), MainStates.VIEWING_EVENT)
 async def join_event_start(callback: CallbackQuery, state: FSMContext):
     """Начало бронирования события"""
-    event_id = int(callback.data.split("_")[1])
+    event_id = int(callback.data.split(CB_EVENT_JOIN, 1)[1])
     
     event = await db.get_event_details(event_id)
     
@@ -1478,7 +1536,7 @@ async def join_event_start(callback: CallbackQuery, state: FSMContext):
     
     display_type = custom_type or event_type
     
-    await state.update_data(join_event_id=event_id)
+    await state.update_data(event_id=event_id, join_event_id=event_id)
     await state.set_state(JoinEventStates.PAYMENT_INFO)
     
     text = (
@@ -1497,10 +1555,58 @@ async def join_event_start(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text, reply_markup=get_payment_kb(event_id), parse_mode="HTML")
     await callback.answer()
 
-@router.callback_query(F.data.startswith("paid_"))
+@router.callback_query(F.data.startswith(CB_EVENT_BACK), JoinEventStates.PAYMENT_INFO)
+async def back_from_payment(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к просмотру события из FSM бронирования"""
+    data = await state.get_data()
+    event_id = data.get("event_id")
+    
+    if not event_id:
+        # Если event_id потеряли, извлекаем из callback data
+        try:
+            event_id = int(callback.data.split(CB_EVENT_BACK, 1)[1])
+        except Exception:
+            await callback.answer("❌ Ошибка при возврате")
+            return
+    
+    event = await db.get_event_details(event_id)
+    if not event:
+        await callback.answer("❌ Событие не найдено")
+        return
+    
+    (event_type, custom_type, city, date, time, max_participants, 
+     description, contact, status, creator_id, creator_username, 
+     creator_name, confirmed_count) = event
+    
+    display_type = custom_type or event_type
+    is_confirmed = await db.is_user_confirmed(event_id, callback.from_user.id)
+    
+    text = (
+        f"📋 <b>Детали события:</b>\n\n"
+        f"🎯 <b>Тип:</b> {display_type}\n"
+        f"🏙️ <b>Город:</b> {city}\n"
+        f"📅 <b>Дата:</b> {date}\n"
+        f"⏰ <b>Время:</b> {time}\n"
+        f"👤 <b>Инициатор:</b> {creator_name or '@' + creator_username}\n"
+        f"📞 <b>Контакт для связи:</b> {contact}\n"
+        f"✅ <b>Забронировано:</b> {confirmed_count}/{max_participants} участников\n\n"
+        f"📝 <b>Описание:</b>\n{description}\n\n"
+    )
+    
+    if is_confirmed:
+        text += "✅ <b>Вы уже участвуете в этом событии</b>"
+    else:
+        text += "<i>Для бронирования нажмите кнопку 'Забронировать'</i>"
+    
+    await state.set_state(MainStates.VIEWING_EVENT)
+    await state.update_data(event_id=event_id)
+    await callback.message.edit_text(text, reply_markup=get_event_details_kb(event_id, callback.from_user.id, is_confirmed), parse_mode="HTML")
+    await callback.answer()
+
+@router.callback_query(F.data.startswith(CB_EVENT_PAID), JoinEventStates.PAYMENT_INFO)
 async def process_payment(callback: CallbackQuery, state: FSMContext):
     """Обработка подтверждения оплаты"""
-    event_id = int(callback.data.split("_")[1])
+    event_id = int(callback.data.split(CB_EVENT_PAID, 1)[1])
     
     success, message = await db.add_participant(event_id, callback.from_user.id)
     
@@ -1554,35 +1660,41 @@ async def process_payment(callback: CallbackQuery, state: FSMContext):
             "🔥 <b>Пригласите друзей — так будет веселее!</b>"
         )
         
-        await state.set_state(MainStates.MAIN_MENU)
-        await callback.message.edit_text(text, parse_mode="HTML")
+        await state.update_data(event_id=event_id)
+        await state.set_state(MainStates.VIEWING_EVENT)
         
-        await callback.message.answer(
-            "📲 Пригласите друзей:",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(
-                    text="📲 Пригласить друга", 
-                    callback_data=f"invite_{event_id}_{callback.from_user.id}"
-                )
-            ]])
-        )
+        # Кнопки: пригласить друга, вернуться к событию, в главное меню
+        buttons = [
+            [InlineKeyboardButton(text="📲 Пригласить друга", callback_data=f"{CB_EVENT_INVITE}{event_id}:{callback.from_user.id}")],
+            [InlineKeyboardButton(text="📌 К деталям события", callback_data=f"{CB_EVENT_BACK}{event_id}")],
+            [InlineKeyboardButton(text="🏠 В главное меню", callback_data=CB_NAV_BACK_TO_MAIN)]
+        ]
         
-        await callback.message.answer(
-            "Выберите действие:",
-            reply_markup=get_main_menu_kb(callback.from_user.id)
-        )
+        await callback.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
     
     await callback.answer()
 
 # === ПРИГЛАШЕНИЕ ДРУЗЕЙ ===
 
-@router.callback_query(F.data.startswith("invite_"))
+@router.callback_query(F.data.startswith(CB_EVENT_INVITE))
 async def invite_friend(callback: CallbackQuery):
     """Генерация инвайт-ссылки"""
-    parts = callback.data.split("_")
-    event_id = int(parts[1])
-    inviter_id = int(parts[2])
-    
+    # Expected formats:
+    # - event:invite:<event_id>:<inviter_id>
+    # - for backward compat 'invite_<id>_<inviter>' we also handle underscores
+    rest = callback.data.split(CB_EVENT_INVITE, 1)[1]
+    if ":" in rest:
+        event_id_str, inviter_id_str = rest.split(":", 1)
+    elif "_" in rest:
+        parts = rest.split("_")
+        event_id_str = parts[0]
+        inviter_id_str = parts[1] if len(parts) > 1 else str(callback.from_user.id)
+    else:
+        event_id_str = rest
+        inviter_id_str = str(callback.from_user.id)
+
+    event_id = int(event_id_str)
+    inviter_id = int(inviter_id_str)
     invite_link = f"https://t.me/{bot._me.username}?start=invite_{event_id}_{inviter_id}"
     
     await callback.message.answer(
@@ -1593,9 +1705,52 @@ async def invite_friend(callback: CallbackQuery):
     )
     await callback.answer()
 
+
+@router.callback_query(F.data.startswith(CB_EVENT_BACK))
+async def event_back_to_details(callback: CallbackQuery, state: FSMContext):
+    """Вернуть пользователя к деталям события (используется после оплаты)"""
+    try:
+        event_id = int(callback.data.split(CB_EVENT_BACK, 1)[1])
+    except Exception:
+        await callback.answer("❌ Неверный идентификатор события")
+        return
+
+    event = await db.get_event_details(event_id)
+    if not event:
+        await callback.answer("❌ Событие не найдено")
+        return
+
+    (event_type, custom_type, city, date, time, max_participants, 
+     description, contact, status, creator_id, creator_username, 
+     creator_name, confirmed_count) = event
+
+    display_type = custom_type or event_type
+    is_confirmed = await db.is_user_confirmed(event_id, callback.from_user.id)
+
+    text = (
+        f"📋 <b>Детали события:</b>\n\n"
+        f"🎯 <b>Тип:</b> {display_type}\n"
+        f"🏙️ <b>Город:</b> {city}\n"
+        f"📅 <b>Дата:</b> {date}\n"
+        f"⏰ <b>Время:</b> {time}\n"
+        f"👤 <b>Инициатор:</b> {creator_name or '@' + creator_username}\n"
+        f"📞 <b>Контакт для связи:</b> {contact}\n"
+        f"✅ <b>Забронировано:</b> {confirmed_count}/{max_participants} участников\n\n"
+        f"📝 <b>Описание:</b>\n{description}\n\n"
+    )
+
+    if is_confirmed:
+        text += "✅ <b>Вы уже участвуете в этом событии</b>"
+    else:
+        text += "<i>Для бронирования нажмите кнопку 'Забронировать'</i>"
+
+    await state.set_state(MainStates.VIEWING_EVENT)
+    await callback.message.edit_text(text, reply_markup=get_event_details_kb(event_id, callback.from_user.id, is_confirmed), parse_mode="HTML")
+    await callback.answer()
+
 # === ПРОФИЛЬ: МОИ БРОНИ И СОБЫТИЯ ===
 
-@router.callback_query(F.data == "my_bookings")
+@router.callback_query(F.data == CB_PROFILE_MY_BOOKINGS, MainStates.MAIN_MENU)
 async def show_my_bookings(callback: CallbackQuery, state: FSMContext):
     """Показать мои бронирования"""
     bookings = await db.get_user_bookings(callback.from_user.id)
@@ -1607,8 +1762,8 @@ async def show_my_bookings(callback: CallbackQuery, state: FSMContext):
             "Найдите интересное событие и забронируйте участие!",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔍 Найти события", callback_data="back_to_main")],
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_profile")]
+                [InlineKeyboardButton(text="🔍 Найти события", callback_data=CB_NAV_BACK_TO_MAIN)],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data=CB_NAV_BACK_TO_PROFILE)]
             ])
         )
         await callback.answer()
@@ -1630,6 +1785,7 @@ async def show_my_bookings(callback: CallbackQuery, state: FSMContext):
     if len(bookings) > 10:
         bookings_text += f"\n... и ещё {len(bookings) - 10} бронирований"
     
+    await state.set_state(MainStates.MAIN_MENU)
     await callback.message.edit_text(
         bookings_text,
         parse_mode="HTML",
@@ -1637,7 +1793,7 @@ async def show_my_bookings(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@router.callback_query(F.data == "my_events")
+@router.callback_query(F.data == CB_PROFILE_MY_EVENTS, MainStates.MAIN_MENU)
 async def show_my_events(callback: CallbackQuery, state: FSMContext):
     """Показать мои события"""
     events = await db.get_user_created_events(callback.from_user.id)
@@ -1649,8 +1805,8 @@ async def show_my_events(callback: CallbackQuery, state: FSMContext):
             "Создайте первое событие и приглашайте участников!",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="➕ Создать событие", callback_data="back_to_main")],
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_profile")]
+                [InlineKeyboardButton(text="➕ Создать событие", callback_data=CB_NAV_BACK_TO_MAIN)],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data=CB_NAV_BACK_TO_PROFILE)]
             ])
         )
         await callback.answer()
@@ -1676,6 +1832,7 @@ async def show_my_events(callback: CallbackQuery, state: FSMContext):
     
     events_text = f"🎯 <b>Мои события</b> ({active_count} активных)\n\n" + events_text[24:]
     
+    await state.set_state(MainStates.MAIN_MENU)
     await callback.message.edit_text(
         events_text,
         parse_mode="HTML",
@@ -1683,10 +1840,10 @@ async def show_my_events(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@router.callback_query(F.data.startswith("my_event_"))
+@router.callback_query(F.data.startswith(CB_EVENT_MY), MainStates.MAIN_MENU)
 async def show_my_event_details(callback: CallbackQuery, state: FSMContext):
     """Показать детали моего события"""
-    event_id = int(callback.data.split("_")[2])
+    event_id = int(callback.data.split(CB_EVENT_MY, 1)[1])
     
     event = await db.get_event_details(event_id)
     
@@ -1716,6 +1873,7 @@ async def show_my_event_details(callback: CallbackQuery, state: FSMContext):
     if participants:
         text += f"<b>Уже забронировали:</b> {len(participants)} участник(ов)\n"
     
+    await state.set_state(MainStates.MAIN_MENU)
     await callback.message.edit_text(
         text,
         parse_mode="HTML",
@@ -1723,10 +1881,10 @@ async def show_my_event_details(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@router.callback_query(F.data.startswith("event_participants_"))
-async def show_event_participants(callback: CallbackQuery):
+@router.callback_query(F.data.startswith(CB_EVENT_PARTICIPANTS), MainStates.MAIN_MENU)
+async def show_event_participants(callback: CallbackQuery, state: FSMContext):
     """Показать список участников события"""
-    event_id = int(callback.data.split("_")[2])
+    event_id = int(callback.data.split(CB_EVENT_PARTICIPANTS, 1)[1])
     
     participants = await db.get_event_participants_list(event_id)
     
@@ -1736,7 +1894,7 @@ async def show_event_participants(callback: CallbackQuery):
             "Пока нет подтверждённых участников.\n",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"my_event_{event_id}")]
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"{CB_EVENT_MY}{event_id}")]
             ])
         )
         await callback.answer()
@@ -1753,6 +1911,7 @@ async def show_event_participants(callback: CallbackQuery):
     
     participants_text += f"\n<b>Всего:</b> {len(participants)} участник(ов)"
     
+    await state.set_state(MainStates.MAIN_MENU)
     await callback.message.edit_text(
         participants_text,
         parse_mode="HTML",
@@ -1760,9 +1919,58 @@ async def show_event_participants(callback: CallbackQuery):
     )
     await callback.answer()
 
+
+@router.callback_query(F.data.startswith(CB_USER_INFO))
+async def show_user_info(callback: CallbackQuery):
+    """Показать информацию о пользователе по telegram_id"""
+    try:
+        telegram_id = int(callback.data.split(CB_USER_INFO, 1)[1])
+    except Exception:
+        await callback.answer("❌ Неверный идентификатор пользователя")
+        return
+
+    info = await db.get_user_full_info(telegram_id)
+    if not info:
+        await callback.answer("❌ Информация о пользователе не найдена")
+        return
+
+    name, city, username, rating, created_at, events_created, bookings_made = info
+    created_date = datetime.fromisoformat(created_at.replace(' ', 'T')).strftime("%d.%m.%Y")
+
+    text = (
+        f"👤 <b>Профиль пользователя</b>\n\n"
+        f"<b>Имя:</b> {name}\n"
+        f"<b>Город:</b> {city}\n"
+        f"<b>Username:</b> @{username if username else 'не указан'}\n"
+        f"<b>Рейтинг:</b> {rating} ⭐\n\n"
+        f"<b>Статистика:</b>\n"
+        f"• Создал событий: {events_created}\n"
+        f"• Забронировал мест: {bookings_made}\n"
+        f"• В системе с: {created_date}\n"
+    )
+
+    await callback.message.answer(text, parse_mode="HTML")
+    await callback.answer()
+
+
+@router.callback_query()
+async def callback_fallback(callback: CallbackQuery, state: FSMContext):
+    """Универсальный fallback для неизвестных callback'ов — возвращаем пользователя в главное меню"""
+    await state.clear()
+    await state.set_state(MainStates.MAIN_MENU)
+    try:
+        await callback.message.edit_text("Я вернул вас в главное меню.")
+    except Exception:
+        pass
+    await callback.message.answer(
+        "Выберите действие:",
+        reply_markup=get_main_menu_kb(callback.from_user.id)
+    )
+    await callback.answer()
+
 # === АДМИН-ПАНЕЛЬ ===
 
-@router.callback_query(F.data == "admin_panel")
+@router.callback_query(F.data == CB_ADMIN_PANEL, MainStates.MAIN_MENU)
 async def admin_panel(callback: CallbackQuery):
     """Админ-панель"""
     if callback.from_user.id not in ADMIN_IDS:
@@ -1777,7 +1985,39 @@ async def admin_panel(callback: CallbackQuery):
     )
     await callback.answer()
 
-@router.callback_query(F.data == "admin_stats")
+
+@router.callback_query(F.data == CB_ADMIN_ALL_USERS)
+async def admin_all_users(callback: CallbackQuery):
+    """Показать список пользователей (упрощенно: количество и несколько записей)"""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔ У вас нет доступа")
+        return
+
+    stats = await db.get_admin_stats()
+    total = stats.get('total_users', 0)
+    await callback.message.edit_text(
+        f"👥 Всего пользователей: {total}\n\n(Полный список в БД)",
+        reply_markup=get_admin_kb()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == CB_ADMIN_ALL_EVENTS)
+async def admin_all_events(callback: CallbackQuery):
+    """Показать все события (упрощенно: количество)"""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔ У вас нет доступа")
+        return
+
+    stats = await db.get_admin_stats()
+    total = stats.get('total_events', 0)
+    await callback.message.edit_text(
+        f"🎯 Всего событий: {total}\nАктивных: {stats.get('active_events',0)}",
+        reply_markup=get_admin_kb()
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == CB_ADMIN_STATS)
 async def admin_stats(callback: CallbackQuery):
     """Статистика админки"""
     if callback.from_user.id not in ADMIN_IDS:
@@ -1818,7 +2058,7 @@ async def admin_stats(callback: CallbackQuery):
 
 # === НАВИГАЦИОННЫЕ КНОПКИ ===
 
-@router.callback_query(F.data == "back_to_main")
+@router.callback_query(F.data == CB_NAV_BACK_TO_MAIN)
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
     """Возврат в главное меню"""
     await state.set_state(MainStates.MAIN_MENU)
@@ -1829,7 +2069,7 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@router.callback_query(F.data == "back_to_search")
+@router.callback_query(F.data == CB_NAV_BACK_TO_SEARCH)
 async def back_to_search(callback: CallbackQuery, state: FSMContext):
     """Возврат к поиску"""
     await state.set_state(SearchEventsStates.SELECT_EVENT)
@@ -1850,44 +2090,7 @@ async def back_to_search(callback: CallbackQuery, state: FSMContext):
     
     await callback.answer()
 
-@router.callback_query(F.data.startswith("back_to_event_"))
-async def back_to_event(callback: CallbackQuery, state: FSMContext):
-    """Возврат к событию"""
-    event_id = int(callback.data.split("_")[3])
-    
-    event = await db.get_event_details(event_id)
-    
-    if event:
-        (event_type, custom_type, city, date, time, max_participants, 
-         description, contact, status, creator_id, creator_username, 
-         creator_name, confirmed_count) = event
-        
-        display_type = custom_type or event_type
-        
-        is_confirmed = await db.is_user_confirmed(event_id, callback.from_user.id)
-        
-        text = (
-            f"📋 <b>Детали события:</b>\n\n"
-            f"🎯 <b>Тип:</b> {display_type}\n"
-            f"🏙️ <b>Город:</b> {city}\n"
-            f"📅 <b>Дата:</b> {date}\n"
-            f"⏰ <b>Время:</b> {time}\n"
-            f"👤 <b>Инициатор:</b> {creator_name or '@' + creator_username}\n"
-            f"📞 <b>Контакт для связи:</b> {contact}\n"
-            f"✅ <b>Забронировано:</b> {confirmed_count}/{max_participants} участников\n"
-            f"📊 <b>Статус:</b> {status}\n\n"
-            f"📝 <b>Описание:</b>\n{description}\n"
-        )
-        
-        await callback.message.edit_text(
-            text, 
-            reply_markup=get_event_details_kb(event_id, callback.from_user.id, is_confirmed), 
-            parse_mode="HTML"
-        )
-    
-    await callback.answer()
-
-@router.callback_query(F.data == "back_to_profile")
+@router.callback_query(F.data == CB_NAV_BACK_TO_PROFILE)
 async def back_to_profile(callback: CallbackQuery, state: FSMContext):
     """Возврат в профиль"""
     user_info = await db.get_user_full_info(callback.from_user.id)
@@ -1914,6 +2117,7 @@ async def back_to_profile(callback: CallbackQuery, state: FSMContext):
     user_events = await db.get_user_created_events(callback.from_user.id)
     is_creator = len(user_events) > 0
     
+    await state.set_state(MainStates.MAIN_MENU)
     await callback.message.edit_text(
         profile_text,
         parse_mode="HTML",
@@ -1921,8 +2125,8 @@ async def back_to_profile(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-@router.callback_query(F.data == "back_to_my_events")
-async def back_to_my_events(callback: CallbackQuery):
+@router.callback_query(F.data == CB_NAV_BACK_TO_MY_EVENTS)
+async def back_to_my_events(callback: CallbackQuery, state: FSMContext):
     """Возврат к списку моих событий"""
     events = await db.get_user_created_events(callback.from_user.id)
     
@@ -1932,7 +2136,7 @@ async def back_to_my_events(callback: CallbackQuery):
             "Вы ещё не создали ни одного события.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_profile")]
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data=CB_NAV_BACK_TO_PROFILE)]
             ])
         )
         await callback.answer()
@@ -1955,6 +2159,7 @@ async def back_to_my_events(callback: CallbackQuery):
     
     events_text = f"🎯 <b>Мои события</b> ({active_count} активных)\n\n" + events_text[24:]
     
+    await state.set_state(MainStates.MAIN_MENU)
     await callback.message.edit_text(
         events_text,
         parse_mode="HTML",
@@ -2055,3 +2260,4 @@ if __name__ == "__main__":
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
     asyncio.run(main())
+[file content end]
