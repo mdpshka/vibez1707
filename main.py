@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import aiosqlite
 from datetime import datetime, timedelta
 from typing import Optional
@@ -61,10 +62,13 @@ CB_NAV_BACK_TO_PROFILE = "nav:back_to_profile"
 CB_NAV_BACK_TO_MY_EVENTS = "nav:back_to_my_events"
 CB_NAV_BACK_TO_SEARCH = "nav:back_to_search"
 
-CB_ADMIN_PANEL = "admin:panel"
+# === НОВЫЕ CALLBACK PREFIXES ДЛЯ АДМИНКИ ===
+CB_ADMIN_MENU = "admin:menu"
 CB_ADMIN_STATS = "admin:stats"
-CB_ADMIN_ALL_USERS = "admin:all_users"
-CB_ADMIN_ALL_EVENTS = "admin:all_events"
+CB_ADMIN_EVENTS_LIST = "admin:events"
+CB_ADMIN_EVENTS_DETAIL = "admin:event:"
+CB_ADMIN_BOOKINGS = "admin:bookings"
+CB_ADMIN_BOOKINGS_PAGE = "admin:bookings_page:"
 
 CB_USER_INFO = "user:info:"
 
@@ -477,6 +481,110 @@ class Database:
             """, (telegram_id,))
             return await cursor.fetchone()
 
+    # === НОВЫЕ МЕТОДЫ ДЛЯ АДМИНКИ ===
+    async def get_all_events_admin(self, limit=50):
+        """Получить все события для админки"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT 
+                    e.id,
+                    CASE WHEN e.custom_type IS NOT NULL THEN e.custom_type ELSE e.type END as display_type,
+                    e.city,
+                    e.date || ' ' || e.time as date_time,
+                    u.name as creator_name,
+                    u.username as creator_username,
+                    e.status,
+                    (SELECT COUNT(*) FROM event_participants ep 
+                     WHERE ep.event_id = e.id AND ep.status = 'CONFIRMED') as participants_count,
+                    e.max_participants
+                FROM events e
+                LEFT JOIN users u ON e.creator_id = u.id
+                ORDER BY e.created_at DESC
+                LIMIT ?
+            """, (limit,))
+            return await cursor.fetchall()
+
+    async def get_event_full_details(self, event_id):
+        """Получить полные детали события для админки"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT 
+                    e.id,
+                    e.type,
+                    e.custom_type,
+                    e.city,
+                    e.date,
+                    e.time,
+                    e.max_participants,
+                    e.description,
+                    e.contact,
+                    e.status,
+                    e.created_at,
+                    u.telegram_id as creator_telegram_id,
+                    u.name as creator_name,
+                    u.username as creator_username,
+                    (SELECT COUNT(*) FROM event_participants ep 
+                     WHERE ep.event_id = e.id AND ep.status = 'CONFIRMED') as confirmed_count,
+                    (SELECT COUNT(*) FROM event_participants ep 
+                     WHERE ep.event_id = e.id) as total_participants
+                FROM events e
+                LEFT JOIN users u ON e.creator_id = u.id
+                WHERE e.id = ?
+            """, (event_id,))
+            return await cursor.fetchone()
+
+    async def get_recent_bookings(self, limit=20, offset=0):
+        """Получить последние бронирования для админки"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT 
+                    ep.id as booking_id,
+                    ep.created_at as booking_date,
+                    ep.status,
+                    u.telegram_id,
+                    u.name as user_name,
+                    u.username,
+                    e.id as event_id,
+                    CASE WHEN e.custom_type IS NOT NULL THEN e.custom_type ELSE e.type END as event_type,
+                    e.city,
+                    e.date || ' ' || e.time as event_datetime
+                FROM event_participants ep
+                JOIN events e ON ep.event_id = e.id
+                JOIN users u ON ep.user_id = u.id
+                ORDER BY ep.created_at DESC
+                LIMIT ? OFFSET ?
+            """, (limit, offset))
+            return await cursor.fetchall()
+
+    async def get_bookings_count(self):
+        """Получить общее количество бронирований"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM event_participants")
+            result = await cursor.fetchone()
+            return result[0] if result else 0
+
+    async def get_booking_by_id(self, booking_id):
+        """Найти бронь по id (admin)"""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT 
+                    ep.id as booking_id,
+                    ep.created_at as booking_date,
+                    ep.status,
+                    u.telegram_id,
+                    u.name as user_name,
+                    u.username,
+                    e.id as event_id,
+                    CASE WHEN e.custom_type IS NOT NULL THEN e.custom_type ELSE e.type END as event_type,
+                    e.city,
+                    e.date || ' ' || e.time as event_datetime
+                FROM event_participants ep
+                JOIN events e ON ep.event_id = e.id
+                JOIN users u ON ep.user_id = u.id
+                WHERE ep.id = ?
+            """, (booking_id,))
+            return await cursor.fetchone()
+
 db = Database()
 
 # === УТИЛИТЫ ДЛЯ УВЕДОМЛЕНИЙ ===
@@ -658,7 +766,7 @@ def get_profile_kb(telegram_id, is_creator=False):
     keyboard = []
     
     if telegram_id in ADMIN_IDS:
-        keyboard.append([InlineKeyboardButton(text=BTN_ADMIN, callback_data=CB_ADMIN_PANEL)])
+        keyboard.append([InlineKeyboardButton(text=BTN_ADMIN, callback_data=CB_ADMIN_MENU)])
     
     keyboard.append([InlineKeyboardButton(text=BTN_MY_BOOKINGS, callback_data=CB_PROFILE_MY_BOOKINGS)])
     
@@ -668,17 +776,6 @@ def get_profile_kb(telegram_id, is_creator=False):
     keyboard.append([InlineKeyboardButton(text=BTN_BACK + " в главное меню", callback_data=CB_NAV_BACK_TO_MAIN)])
     
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-def get_admin_kb():
-    """Клавиатура админки"""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Статистика", callback_data=CB_ADMIN_STATS)],
-            [InlineKeyboardButton(text="👥 Все пользователи", callback_data=CB_ADMIN_ALL_USERS)],
-            [InlineKeyboardButton(text="🎯 Все события", callback_data=CB_ADMIN_ALL_EVENTS)],
-            [InlineKeyboardButton(text="⬅️ В профиль", callback_data=CB_NAV_BACK_TO_PROFILE)]
-        ]
-    )
 
 def get_my_events_kb(events):
     """Клавиатура для списка моих событий"""
@@ -744,6 +841,90 @@ def get_participants_kb(event_id, participants):
         ])
     
     buttons.append([InlineKeyboardButton(text=BTN_BACK, callback_data=f"{CB_EVENT_MY}{event_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+# === НОВЫЕ КЛАВИАТУРЫ АДМИНКИ ===
+def get_admin_main_kb():
+    """Главное меню админки"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Статистика", callback_data=CB_ADMIN_STATS)],
+            [InlineKeyboardButton(text="📅 Список событий", callback_data=CB_ADMIN_EVENTS_LIST)],
+            [InlineKeyboardButton(text="🎟 Список бронирований", callback_data=CB_ADMIN_BOOKINGS)],
+            [InlineKeyboardButton(text="🔙 Назад в главное", callback_data=CB_NAV_BACK_TO_MAIN)]
+        ]
+    )
+
+def get_admin_events_kb(events):
+    """Список событий для админки"""
+    buttons = []
+    for event in events:
+        event_id, event_type, city, date_time, creator_name, creator_username, status, participants_count, max_participants = event
+        status_emoji = "✅" if status == "ACTIVE" else "❌"
+        creator_display = f"@{creator_username}" if creator_username else creator_name or "Неизвестен"
+        
+        text = f"{status_emoji} {event_type[:15]} | {city} | {participants_count}/{max_participants}"
+        
+        buttons.append([
+            InlineKeyboardButton(
+                text=text,
+                callback_data=f"{CB_ADMIN_EVENTS_DETAIL}{event_id}"
+            )
+        ])
+    
+    buttons.append([InlineKeyboardButton(text="🔙 Назад в админку", callback_data=CB_ADMIN_MENU)])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_admin_event_detail_kb(event_id):
+    """Детали события для админки"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Назад к списку", callback_data=CB_ADMIN_EVENTS_LIST)],
+            [InlineKeyboardButton(text="🏠 В админку", callback_data=CB_ADMIN_MENU)]
+        ]
+    )
+
+def get_admin_bookings_kb(bookings, current_page=0, total_pages=1):
+    """Список бронирований с пагинацией"""
+    buttons = []
+    
+    for booking in bookings:
+        booking_id, booking_date, status, telegram_id, user_name, username, event_id, event_type, city, event_datetime = booking
+        date_str = datetime.fromisoformat(booking_date.replace(' ', 'T')).strftime("%d.%m %H:%M")
+        user_display = f"@{username}" if username else user_name or f"ID:{telegram_id}"
+        
+        text = f"📅 {date_str} | {user_display[:15]} | {event_type[:15]}"
+        
+        buttons.append([
+            InlineKeyboardButton(
+                text=text,
+                callback_data=f"booking_info:{booking_id}"
+            )
+        ])
+    
+    # Пагинация
+    nav_buttons = []
+    if current_page > 0:
+        nav_buttons.append(InlineKeyboardButton(
+            text="⬅️ Назад", 
+            callback_data=f"{CB_ADMIN_BOOKINGS_PAGE}{current_page-1}"
+        ))
+    
+    nav_buttons.append(InlineKeyboardButton(
+        text=f"{current_page+1}/{total_pages}", 
+        callback_data=CB_ADMIN_MENU
+    ))
+    
+    if current_page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(
+            text="Вперед ➡️", 
+            callback_data=f"{CB_ADMIN_BOOKINGS_PAGE}{current_page+1}"
+        ))
+    
+    if nav_buttons:
+        buttons.append(nav_buttons)
+    
+    buttons.append([InlineKeyboardButton(text="🔙 Назад в админку", callback_data=CB_ADMIN_MENU)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # === ОБРАБОТЧИКИ КНОПОК ГЛАВНОГО МЕНЮ ===
@@ -902,13 +1083,276 @@ async def admin_access(message: Message, state: FSMContext):
         await message.answer("⛔ У вас нет доступа к админке")
         return
     
-    await state.set_state(MainStates.MAIN_MENU)
-    await message.answer(
-        "👑 <b>Панель администратора</b>\n\n"
-        "Выберите действие:",
-        parse_mode="HTML",
-        reply_markup=get_admin_kb()
+    text = "👑 <b>Панель администратора</b>\n\nВыберите раздел:"
+    
+    await message.answer(text, reply_markup=get_admin_main_kb(), parse_mode="HTML")
+
+# === НОВАЯ АДМИНКА (БЕЗ FSM) ===
+
+async def check_admin_access(user_id: int) -> bool:
+    """Проверка доступа к админке"""
+    return user_id in ADMIN_IDS
+
+@router.callback_query(F.data == CB_ADMIN_MENU)
+async def admin_menu_handler(callback: CallbackQuery):
+    """Главное меню админки"""
+    user_id = callback.from_user.id
+    
+    if not await check_admin_access(user_id):
+        await callback.answer("⛔ У вас нет доступа к админке")
+        return
+    
+    text = "👑 <b>Панель администратора</b>\n\nВыберите раздел:"
+    
+    await callback.message.edit_text(text, reply_markup=get_admin_main_kb(), parse_mode="HTML")
+    await callback.answer()
+
+@router.callback_query(F.data == CB_ADMIN_STATS)
+async def admin_stats_handler(callback: CallbackQuery):
+    """Статистика платформы"""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа")
+        return
+    
+    stats = await db.get_admin_stats()
+    
+    # Форматируем статистику
+    total_revenue = stats['total_bookings'] * PLATFORM_FEE
+    
+    stats_text = (
+        "📊 <b>Статистика платформы</b>\n\n"
+        f"👥 <b>Пользователи:</b> {stats['total_users']}\n"
+        f"🎯 <b>События:</b> {stats['total_events']} (активных: {stats['active_events']})\n"
+        f"💳 <b>Бронирования:</b> {stats['total_bookings']}\n"
+        f"💰 <b>Оборот:</b> {total_revenue} ₽\n\n"
+        f"📍 <b>Топ городов:</b>\n"
     )
+    
+    for city, count in stats['top_cities']:
+        stats_text += f"• {city}: {count} событий\n"
+    
+    await callback.message.edit_text(
+        stats_text,
+        reply_markup=get_admin_main_kb(),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == CB_ADMIN_EVENTS_LIST)
+async def admin_events_list_handler(callback: CallbackQuery):
+    """Список всех событий"""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа")
+        return
+    
+    events = await db.get_all_events_admin(limit=30)
+    
+    if not events:
+        await callback.message.edit_text(
+            "📅 <b>Список событий</b>\n\nНет созданных событий.",
+            reply_markup=get_admin_main_kb(),
+            parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+    
+    await callback.message.edit_text(
+        f"📅 <b>Список событий</b>\n\nНайдено: {len(events)}",
+        reply_markup=get_admin_events_kb(events),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith(CB_ADMIN_EVENTS_DETAIL))
+async def admin_event_detail_handler(callback: CallbackQuery):
+    """Детали конкретного события"""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа")
+        return
+    
+    try:
+        event_id = int(callback.data.split(CB_ADMIN_EVENTS_DETAIL, 1)[1])
+    except ValueError:
+        await callback.answer("❌ Ошибка: неверный ID события")
+        return
+    
+    event = await db.get_event_full_details(event_id)
+    
+    if not event:
+        await callback.message.edit_text(
+            "❌ Событие не найдено",
+            reply_markup=get_admin_main_kb()
+        )
+        await callback.answer()
+        return
+    
+    # Распаковываем данные
+    (e_id, e_type, custom_type, city, date, time, max_participants, 
+     description, contact, status, created_at, creator_tg_id, 
+     creator_name, creator_username, confirmed_count, total_participants) = event
+    
+    display_type = custom_type or e_type
+    status_text = "✅ Активно" if status == "ACTIVE" else "❌ Неактивно"
+    created_date = datetime.fromisoformat(created_at.replace(' ', 'T')).strftime("%d.%m.%Y %H:%M")
+    creator_display = f"@{creator_username}" if creator_username else creator_name or "Неизвестен"
+    
+    event_text = (
+        f"🎯 <b>Детали события #{event_id}</b>\n\n"
+        f"<b>Тип:</b> {display_type}\n"
+        f"<b>Город:</b> {city}\n"
+        f"<b>Дата и время:</b> {date} {time}\n"
+        f"<b>Статус:</b> {status_text}\n"
+        f"<b>Участники:</b> {confirmed_count}/{max_participants} (всего заявок: {total_participants})\n"
+        f"<b>Контакт организатора:</b> {contact}\n"
+        f"<b>Организатор:</b> {creator_display} (ID: {creator_tg_id})\n"
+        f"<b>Создано:</b> {created_date}\n\n"
+        f"<b>Описание:</b>\n{description}\n"
+    )
+    
+    await callback.message.edit_text(
+        event_text,
+        reply_markup=get_admin_event_detail_kb(event_id),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == CB_ADMIN_BOOKINGS)
+async def admin_bookings_handler(callback: CallbackQuery):
+    """Список бронирований"""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("⛔ Нет доступа")
+        return
+    
+    # Настройки пагинации
+    items_per_page = 10
+    page = 0
+    offset = page * items_per_page
+    
+    # Получаем данные
+    bookings = await db.get_recent_bookings(limit=items_per_page, offset=offset)
+    total_bookings = await db.get_bookings_count()
+    total_pages = max(1, math.ceil(total_bookings / items_per_page))
+    
+    if not bookings:
+        await callback.message.edit_text(
+            "🎟 <b>Список бронирований</b>\n\nНет бронирований.",
+            reply_markup=get_admin_main_kb(),
+            parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+    
+    # Формируем текст
+    bookings_text = f"🎟 <b>Список бронирований</b>\n\nВсего бронирований: {total_bookings}\nСтраница {page+1}/{total_pages}\n\n"
+    
+    for i, booking in enumerate(bookings, 1):
+        booking_id, booking_date, status, telegram_id, user_name, username, event_id, event_type, city, event_datetime = booking
+        date_str = datetime.fromisoformat(booking_date.replace(' ', 'T')).strftime("%d.%m %H:%M")
+        user_display = f"@{username}" if username else user_name or f"ID:{telegram_id}"
+        
+        bookings_text += (
+            f"{i}. <b>{date_str}</b>\n"
+            f"   👤 {user_display}\n"
+            f"   🎯 {event_type} ({city})\n"
+            f"   📅 {event_datetime}\n\n"
+        )
+    
+    await callback.message.edit_text(
+        bookings_text,
+        reply_markup=get_admin_bookings_kb(bookings, page, total_pages),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("booking_info:"))
+async def booking_info_handler(callback: CallbackQuery):
+    """Детали бронирования"""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("⛔ У вас нет доступа")
+        return
+
+    try:
+        booking_id = int(callback.data.split("booking_info:", 1)[1])
+    except Exception:
+        await callback.answer("❌ Неверный ID брони")
+        return
+
+    booking = await db.get_booking_by_id(booking_id)
+    if not booking:
+        await callback.message.edit_text("❌ Бронь не найдена", reply_markup=get_admin_main_kb())
+        await callback.answer()
+        return
+
+    (b_id, booking_date, status, telegram_id, user_name, username, event_id,
+     event_type, city, event_datetime) = booking
+
+    user_display = f"@{username}" if username else user_name or f"ID:{telegram_id}"
+    booking_date_formatted = datetime.fromisoformat(booking_date.replace(' ', 'T')).strftime("%d.%m.%Y %H:%M")
+    
+    text = (
+        f"🎫 <b>Детали брони #{b_id}</b>\n\n"
+        f"<b>Пользователь:</b> {user_display}\n"
+        f"<b>Telegram ID:</b> {telegram_id}\n"
+        f"<b>Событие:</b> {event_type}\n"
+        f"<b>ID события:</b> {event_id}\n"
+        f"<b>Город:</b> {city}\n"
+        f"<b>Дата события:</b> {event_datetime}\n"
+        f"<b>Дата брони:</b> {booking_date_formatted}\n"
+        f"<b>Статус:</b> {status}\n"
+    )
+
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=get_admin_main_kb())
+    await callback.answer()
+
+@router.callback_query(F.data.startswith(CB_ADMIN_BOOKINGS_PAGE))
+async def admin_bookings_page_handler(callback: CallbackQuery):
+    """Пагинация списка бронирований"""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("⛔ У вас нет доступа")
+        return
+
+    try:
+        page = int(callback.data.split(CB_ADMIN_BOOKINGS_PAGE, 1)[1])
+    except Exception:
+        page = 0
+
+    limit = 10
+    total = await db.get_bookings_count()
+    total_pages = max(1, math.ceil(total / limit))
+    offset = page * limit
+
+    bookings = await db.get_recent_bookings(limit=limit, offset=offset)
+    
+    if not bookings:
+        await callback.message.edit_text(
+            f"🎟 <b>Список бронирований</b>\n\nНа странице {page+1}/{total_pages} нет бронирований.",
+            reply_markup=get_admin_main_kb(),
+            parse_mode="HTML"
+        )
+        await callback.answer()
+        return
+    
+    # Формируем текст
+    bookings_text = f"🎟 <b>Список бронирований</b>\n\nВсего бронирований: {total}\nСтраница {page+1}/{total_pages}\n\n"
+    
+    for i, booking in enumerate(bookings, 1):
+        booking_id, booking_date, status, telegram_id, user_name, username, event_id, event_type, city, event_datetime = booking
+        date_str = datetime.fromisoformat(booking_date.replace(' ', 'T')).strftime("%d.%m %H:%M")
+        user_display = f"@{username}" if username else user_name or f"ID:{telegram_id}"
+        
+        bookings_text += (
+            f"{i}. <b>{date_str}</b>\n"
+            f"   👤 {user_display}\n"
+            f"   🎯 {event_type} ({city})\n"
+            f"   📅 {event_datetime}\n\n"
+        )
+    
+    await callback.message.edit_text(
+        bookings_text,
+        reply_markup=get_admin_bookings_kb(bookings, page, total_pages),
+        parse_mode="HTML"
+    )
+    await callback.answer()
 
 # === ОНБОРДИНГ ===
 
@@ -1705,7 +2149,6 @@ async def invite_friend(callback: CallbackQuery):
     )
     await callback.answer()
 
-
 @router.callback_query(F.data.startswith(CB_EVENT_BACK))
 async def event_back_to_details(callback: CallbackQuery, state: FSMContext):
     """Вернуть пользователя к деталям события (используется после оплаты)"""
@@ -1919,7 +2362,6 @@ async def show_event_participants(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
 
-
 @router.callback_query(F.data.startswith(CB_USER_INFO))
 async def show_user_info(callback: CallbackQuery):
     """Показать информацию о пользователе по telegram_id"""
@@ -1952,7 +2394,6 @@ async def show_user_info(callback: CallbackQuery):
     await callback.message.answer(text, parse_mode="HTML")
     await callback.answer()
 
-
 @router.callback_query()
 async def callback_fallback(callback: CallbackQuery, state: FSMContext):
     """Универсальный fallback для неизвестных callback'ов — возвращаем пользователя в главное меню"""
@@ -1965,94 +2406,6 @@ async def callback_fallback(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "Выберите действие:",
         reply_markup=get_main_menu_kb(callback.from_user.id)
-    )
-    await callback.answer()
-
-# === АДМИН-ПАНЕЛЬ ===
-
-@router.callback_query(F.data == CB_ADMIN_PANEL, MainStates.MAIN_MENU)
-async def admin_panel(callback: CallbackQuery):
-    """Админ-панель"""
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("⛔ У вас нет доступа")
-        return
-    
-    await callback.message.edit_text(
-        "👑 <b>Панель администратора</b>\n\n"
-        "Выберите раздел:",
-        parse_mode="HTML",
-        reply_markup=get_admin_kb()
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == CB_ADMIN_ALL_USERS)
-async def admin_all_users(callback: CallbackQuery):
-    """Показать список пользователей (упрощенно: количество и несколько записей)"""
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("⛔ У вас нет доступа")
-        return
-
-    stats = await db.get_admin_stats()
-    total = stats.get('total_users', 0)
-    await callback.message.edit_text(
-        f"👥 Всего пользователей: {total}\n\n(Полный список в БД)",
-        reply_markup=get_admin_kb()
-    )
-    await callback.answer()
-
-
-@router.callback_query(F.data == CB_ADMIN_ALL_EVENTS)
-async def admin_all_events(callback: CallbackQuery):
-    """Показать все события (упрощенно: количество)"""
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("⛔ У вас нет доступа")
-        return
-
-    stats = await db.get_admin_stats()
-    total = stats.get('total_events', 0)
-    await callback.message.edit_text(
-        f"🎯 Всего событий: {total}\nАктивных: {stats.get('active_events',0)}",
-        reply_markup=get_admin_kb()
-    )
-    await callback.answer()
-
-@router.callback_query(F.data == CB_ADMIN_STATS)
-async def admin_stats(callback: CallbackQuery):
-    """Статистика админки"""
-    if callback.from_user.id not in ADMIN_IDS:
-        await callback.answer("⛔ У вас нет доступа")
-        return
-    
-    stats = await db.get_admin_stats()
-    
-    top_cities_text = ""
-    for city, count in stats['top_cities']:
-        top_cities_text += f"• {city}: {count} событий\n"
-    
-    if not top_cities_text:
-        top_cities_text = "Нет данных"
-    
-    stats_text = (
-        "📊 <b>Статистика платформы</b>\n\n"
-        f"<b>👥 Пользователи:</b>\n"
-        f"• Всего: {stats['total_users']}\n\n"
-        
-        f"<b>🎯 События:</b>\n"
-        f"• Всего: {stats['total_events']}\n"
-        f"• Активных: {stats['active_events']}\n\n"
-        
-        f"<b>💳 Бронирования:</b>\n"
-        f"• Всего: {stats['total_bookings']}\n"
-        f"• Оборот: {stats['total_revenue']} ₽\n\n"
-        
-        f"<b>📍 Топ городов:</b>\n{top_cities_text}"
-    )
-    
-    await callback.message.edit_text(
-        stats_text,
-        parse_mode="HTML",
-        reply_markup=get_admin_kb()
     )
     await callback.answer()
 
@@ -2260,4 +2613,3 @@ if __name__ == "__main__":
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
     asyncio.run(main())
-[file content end]
